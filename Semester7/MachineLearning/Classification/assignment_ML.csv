@@ -1,0 +1,65 @@
+Classifier Name,Training or test set,Balanced or unbalanced,Number of training samples,Number of non healthy companies in training sample,True Positves,True Negatives,False Positives,False Negatives,ROC-AUC
+Linear Discriminant Analysis,Train,Balanced,744,186,79,523,35,107,0.87
+Linear Discriminant Analysis,Test,Balanced,744,186,31,2399,218,31,0.83
+Logistic Regression,Train,Balanced,744,186,69,526,32,117,0.87
+Logistic Regression,Test,Balanced,744,186,30,2431,186,32,0.83
+Decision Tree Classifier,Train,Balanced,744,186,186,558,0,0,1.0
+Decision Tree Classifier,Test,Balanced,744,186,35,2149,468,27,0.69
+Random Forests,Train,Balanced,744,186,186,558,0,0,1.0
+Random Forests,Test,Balanced,744,186,32,2391,226,30,0.86
+k-Nearest Neighbors,Train,Balanced,744,186,115,517,41,71,0.91
+k-Nearest Neighbors,Test,Balanced,744,186,33,2311,306,29,0.82
+Naïve Bayes,Train,Balanced,744,186,86,504,54,100,0.85
+Naïve Bayes,Test,Balanced,744,186,30,2318,299,32,0.82
+Support Vector Machines,Train,Balanced,744,186,95,528,30,91,0.9
+Support Vector Machines,Test,Balanced,744,186,32,2422,195,30,0.85
+Gradient Boosting,Train,Balanced,744,186,166,550,8,20,0.99
+Gradient Boosting,Test,Balanced,744,186,37,2345,272,25,0.85
+Linear Discriminant Analysis,Train,Balanced,744,186,70,522,36,116,0.83
+Linear Discriminant Analysis,Test,Balanced,744,186,31,2438,179,31,0.87
+Logistic Regression,Train,Balanced,744,186,57,529,29,129,0.83
+Logistic Regression,Test,Balanced,744,186,27,2473,144,35,0.86
+Decision Tree Classifier,Train,Balanced,744,186,186,558,0,0,1.0
+Decision Tree Classifier,Test,Balanced,744,186,28,2148,469,34,0.64
+Random Forests,Train,Balanced,744,186,186,558,0,0,1.0
+Random Forests,Test,Balanced,744,186,36,2437,180,26,0.89
+k-Nearest Neighbors,Train,Balanced,744,186,108,519,39,78,0.91
+k-Nearest Neighbors,Test,Balanced,744,186,31,2354,263,31,0.85
+Naïve Bayes,Train,Balanced,744,186,102,491,67,84,0.83
+Naïve Bayes,Test,Balanced,744,186,43,2265,352,19,0.84
+Support Vector Machines,Train,Balanced,744,186,70,540,18,116,0.87
+Support Vector Machines,Test,Balanced,744,186,28,2500,117,34,0.85
+Gradient Boosting,Train,Balanced,744,186,151,548,10,35,0.99
+Gradient Boosting,Test,Balanced,744,186,35,2384,233,27,0.86
+Linear Discriminant Analysis,Train,Balanced,744,186,81,518,40,105,0.85
+Linear Discriminant Analysis,Test,Balanced,744,186,19,2435,182,43,0.8
+Logistic Regression,Train,Balanced,744,186,71,526,32,115,0.85
+Logistic Regression,Test,Balanced,744,186,14,2452,165,48,0.8
+Decision Tree Classifier,Train,Balanced,744,186,186,558,0,0,1.0
+Decision Tree Classifier,Test,Balanced,744,186,24,2235,382,38,0.62
+Random Forests,Train,Balanced,744,186,186,558,0,0,1.0
+Random Forests,Test,Balanced,744,186,25,2439,178,37,0.8
+k-Nearest Neighbors,Train,Balanced,744,186,111,521,37,75,0.91
+k-Nearest Neighbors,Test,Balanced,744,186,17,2371,246,45,0.73
+Naïve Bayes,Train,Balanced,744,186,92,480,78,94,0.83
+Naïve Bayes,Test,Balanced,744,186,22,2290,327,40,0.77
+Support Vector Machines,Train,Balanced,744,186,85,535,23,101,0.88
+Support Vector Machines,Test,Balanced,744,186,15,2477,140,47,0.79
+Gradient Boosting,Train,Balanced,744,186,156,550,8,30,0.99
+Gradient Boosting,Test,Balanced,744,186,21,2411,206,41,0.78
+Linear Discriminant Analysis,Train,Balanced,744,186,77,528,30,109,0.85
+Linear Discriminant Analysis,Test,Balanced,744,186,21,2422,195,41,0.85
+Logistic Regression,Train,Balanced,744,186,72,531,27,114,0.84
+Logistic Regression,Test,Balanced,744,186,20,2445,172,42,0.85
+Decision Tree Classifier,Train,Balanced,744,186,186,558,0,0,1.0
+Decision Tree Classifier,Test,Balanced,744,186,29,2185,432,33,0.65
+Random Forests,Train,Balanced,744,186,186,558,0,0,1.0
+Random Forests,Test,Balanced,744,186,29,2408,209,33,0.86
+k-Nearest Neighbors,Train,Balanced,744,186,113,536,22,73,0.92
+k-Nearest Neighbors,Test,Balanced,744,186,31,2337,280,31,0.81
+Naïve Bayes,Train,Balanced,744,186,98,498,60,88,0.82
+Naïve Bayes,Test,Balanced,744,186,32,2302,315,30,0.84
+Support Vector Machines,Train,Balanced,744,186,86,539,19,100,0.89
+Support Vector Machines,Test,Balanced,744,186,24,2439,178,38,0.85
+Gradient Boosting,Train,Balanced,744,186,156,552,6,30,0.99
+Gradient Boosting,Test,Balanced,744,186,31,2395,222,31,0.86
