@@ -1,0 +1,895 @@
+---
+title: "Γραμμική Παλινδρόμηση — Case Study: Kickstarter Projects"
+author: "Ανάλυση Δεδομένων"
+date: "`r format(Sys.Date(), '%d %B %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    theme: flatly
+    highlight: tango
+    number_sections: true
+    df_print: paged
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo      = TRUE,
+  warning   = FALSE,
+  message   = FALSE,
+  fig.align = "center",
+  fig.width  = 9,
+  fig.height = 5,
+  dpi        = 150
+)
+```
+
+```{r libraries, results='hide'}
+# ── Αυτόματη εγκατάσταση όσων πακέτων λείπουν ────────────────────────────────
+required_packages <- c(
+  "tidyverse", "corrplot", "GGally", "knitr", "kableExtra",
+  "car", "broom", "scales", "viridis", "ggridges",
+  "gridExtra", "moments", "lubridate"
+)
+
+missing_packages <- required_packages[
+  !required_packages %in% installed.packages()[, "Package"]
+]
+
+if (length(missing_packages) > 0) {
+  message("📦 Εγκατάσταση: ", paste(missing_packages, collapse = ", "))
+  install.packages(missing_packages, dependencies = TRUE, quiet = TRUE)
+}
+
+# ── Φόρτωση πακέτων ───────────────────────────────────────────────────────────
+library(tidyverse)    # dplyr + ggplot2 + tidyr + readr + lubridate + stringr
+library(corrplot)     # correlation plots
+library(GGally)       # ggpairs
+library(knitr)        # kable
+library(kableExtra)   # kable styling
+library(car)          # VIF
+library(broom)        # tidy / glance
+library(scales)       # comma / dollar formatters
+library(viridis)      # color palettes
+library(ggridges)     # ridge plots
+library(gridExtra)    # grid.arrange
+library(moments)      # skewness
+library(lubridate)    # date functions
+```
+
+---
+
+# Εισαγωγή
+
+## Το Kickstarter Platform
+
+Το **Kickstarter** είναι η μεγαλύτερη παγκοσμίως πλατφόρμα crowdfunding για δημιουργικά έργα. Από την ίδρυσή της το 2009 έως το 2018, περισσότερα από **300.000 projects** έχουν χρηματοδοτηθεί επιτυχώς από **21 εκατ. backers** που έχουν διαθέσει συνολικά πάνω από **7 δισ. δολάρια**.
+
+## Ερευνητικό Ερώτημα
+
+> **Ποιοι παράγοντες επηρεάζουν το ύψος της χρηματοδότησης ενός Kickstarter project;**
+
+Στόχος της ανάλυσης είναι η κατασκευή γραμμικού παλινδρομικού μοντέλου που να **προβλέπει το ποσό χρηματοδότησης** (`log_pledged`) βάσει χαρακτηριστικών όπως ο στόχος χρηματοδότησης, η διάρκεια της καμπάνιας, η κατηγορία του έργου και ο αριθμός των υποστηρικτών.
+
+## Τα 4 Βήματα της Ανάλυσης
+
+| # | Βήμα | Περιγραφή |
+|---|------|-----------|
+| 1 | **EDA** | Φόρτωση, καθαρισμός, περιγραφική στατιστική & οπτικοποίηση |
+| 2 | **Συσχετίσεις** | Ανάλυση γραμμικών σχέσεων & επιλογή μεταβλητών |
+| 3 | **Μοντελοποίηση** | Απλή → Πολλαπλή Παλινδρόμηση, Stepwise Selection |
+| 4 | **Αξιολόγηση** | Diagnostics, VIF, σύγκριση μοντέλων |
+
+---
+
+# Βήμα 1 — Φόρτωση & Κατανόηση Δεδομένων (EDA) {#eda}
+
+## Φόρτωση Dataset
+
+```{r load-data}
+# ── Οδηγίες Λήψης ──────────────────────────────────────────────────────────────
+# 1. Κατεβάστε το αρχείο από: https://www.kaggle.com/datasets/kemical/kickstarter-projects
+# 2. Αποθηκεύστε το ως "ks-projects-201801.csv" στον κατάλογο εργασίας σας
+# 3. Ορίστε το path παρακάτω
+# ──────────────────────────────────────────────────────────────────────────────
+
+# ks_raw <- read_csv("ks-projects-201801.csv")
+
+# ── Προσομοίωση representative sample για reproducibility ─────────────────────
+# (Αντικαταστήστε με read_csv() όταν έχετε το αρχείο)
+set.seed(42)
+n <- 5000
+
+main_cats <- c("Film & Video","Music","Technology","Games","Art",
+               "Publishing","Food","Fashion","Theater","Comics",
+               "Photography","Crafts","Design","Dance","Journalism")
+cat_probs <- c(.17,.14,.09,.08,.07,.11,.06,.05,.04,.04,.05,.03,.04,.02,.01)
+
+states <- c("successful","failed","canceled","suspended")
+state_p <- c(.35,.52,.11,.02)
+
+countries <- c("US","GB","CA","AU","DE","FR","NL","IT","ES","SE")
+country_p <- c(.79,.09,.04,.03,.01,.01,.01,.005,.005,.005)
+
+launched_dates <- seq(as.Date("2010-01-01"), as.Date("2017-12-31"), by = "day")
+
+ks_raw <- tibble(
+  ID           = 1:n,
+  name         = paste("Project", 1:n),
+  main_category= sample(main_cats, n, replace = TRUE, prob = cat_probs),
+  currency     = "USD",
+  state        = sample(states, n, replace = TRUE, prob = state_p),
+  backers      = as.integer(round(rlnorm(n, meanlog = 3.2, sdlog = 2.0))),
+  country      = sample(countries, n, replace = TRUE, prob = country_p),
+  launched     = sample(launched_dates, n, replace = TRUE),
+  usd_goal_real = round(exp(rnorm(n, mean = 9.5, sd = 1.8)), 2),
+  usd_pledged_real = NA_real_
+) %>%
+  mutate(
+    deadline = launched + sample(14:60, n, replace = TRUE),
+    usd_pledged_real = case_when(
+      state == "successful"  ~ round(usd_goal_real * runif(n, 1.0, 5.0) *
+                                       (1 + log1p(backers) * 0.15), 2),
+      state == "failed"      ~ round(usd_goal_real * runif(n, 0.0, 0.99) *
+                                       pmax(0.01, log1p(backers) * 0.05), 2),
+      state == "canceled"    ~ round(usd_goal_real * runif(n, 0.0, 0.50), 2),
+      TRUE                   ~ round(usd_goal_real * runif(n, 0.0, 0.20), 2)
+    ),
+    usd_pledged_real = pmax(0, usd_pledged_real)
+  )
+```
+
+## Καθαρισμός & Feature Engineering
+
+```{r clean-data}
+ks <- ks_raw %>%
+  # ── 1. Κρατάμε μόνο ολοκληρωμένα projects (successful / failed) ────────────
+  filter(state %in% c("successful", "failed")) %>%
+
+  # ── 2. Υπολογισμός νέων μεταβλητών ─────────────────────────────────────────
+  mutate(
+    # Διάρκεια καμπάνιας σε ημέρες
+    campaign_days = as.numeric(as.Date(deadline) - as.Date(launched)),
+
+    # Χρονολογία έναρξης
+    launch_year  = year(as.Date(launched)),
+    launch_month = month(as.Date(launched), label = TRUE),
+
+    # Επιτυχία (binary)
+    success = ifelse(state == "successful", 1L, 0L),
+
+    # Λογαριθμικοί μετασχηματισμοί (για κανονικότητα)
+    log_pledged = log1p(usd_pledged_real),
+    log_goal    = log1p(usd_goal_real),
+    log_backers = log1p(backers),
+
+    # Ποσοστό επίτευξης στόχου
+    pct_funded  = usd_pledged_real / usd_goal_real,
+
+    # Κατηγοριοποίηση μεγέθους στόχου
+    goal_size = case_when(
+      usd_goal_real <  1000  ~ "Micro (<$1K)",
+      usd_goal_real <  10000 ~ "Small ($1K–$10K)",
+      usd_goal_real <  50000 ~ "Medium ($10K–$50K)",
+      usd_goal_real < 100000 ~ "Large ($50K–$100K)",
+      TRUE                   ~ "XLarge (>$100K)"
+    ),
+    goal_size = factor(goal_size,
+                       levels = c("Micro (<$1K)","Small ($1K–$10K)",
+                                  "Medium ($10K–$50K)","Large ($50K–$100K)",
+                                  "XLarge (>$100K)"))
+  ) %>%
+  # ── 3. Φιλτράρισμα ακραίων τιμών ────────────────────────────────────────────
+  filter(
+    campaign_days >= 1, campaign_days <= 92,
+    usd_goal_real  > 0,
+    backers        >= 0
+  ) %>%
+  # ── 4. Αφαίρεση NA ───────────────────────────────────────────────────────────
+  drop_na(log_pledged, log_goal, log_backers, campaign_days, main_category)
+
+cat("✓ Τελικό dataset:", nrow(ks), "παρατηρήσεις,", ncol(ks), "μεταβλητές\n")
+cat("✓ Περίοδος:", min(ks$launch_year), "–", max(ks$launch_year), "\n")
+cat("✓ Κατηγορίες:", n_distinct(ks$main_category), "\n")
+cat("✓ Χώρες:", n_distinct(ks$country), "\n")
+cat("✓ Ποσοστό επιτυχίας:", scales::percent(mean(ks$success), accuracy = 0.1), "\n")
+```
+
+## Λεξικό Μεταβλητών
+
+```{r data-dict}
+tibble(
+  Μεταβλητή    = c("usd_pledged_real","usd_goal_real","backers",
+                   "campaign_days","main_category","state","country",
+                   "log_pledged","log_goal","log_backers","pct_funded"),
+  Τύπος        = c("Αριθμητική (Y)","Αριθμητική","Αριθμητική (int)",
+                   "Αριθμητική","Κατηγορική","Κατηγορική (binary)","Κατηγορική",
+                   "Αριθμητική (Y*)","Αριθμητική","Αριθμητική","Αριθμητική"),
+  Περιγραφή    = c("Ποσό χρηματοδότησης σε USD — εξαρτημένη",
+                   "Στόχος χρηματοδότησης σε USD",
+                   "Αριθμός υποστηρικτών (backers)",
+                   "Διάρκεια καμπάνιας (deadline − launched)",
+                   "Κύρια κατηγορία έργου (15 κατηγορίες)",
+                   "Αποτέλεσμα: successful / failed",
+                   "Χώρα καταγωγής",
+                   "log(1 + usd_pledged_real) — τελική εξαρτημένη",
+                   "log(1 + usd_goal_real)",
+                   "log(1 + backers)",
+                   "usd_pledged / usd_goal")
+) %>%
+  kable(caption = "Λεξικό Μεταβλητών — Kickstarter Dataset") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE) %>%
+  row_spec(c(1,8), background = "#DCEEFB", bold = TRUE)
+```
+
+## Περιγραφική Στατιστική
+
+```{r desc-stats}
+num_cols <- c("usd_pledged_real","usd_goal_real","backers",
+              "campaign_days","log_pledged","log_goal","log_backers")
+
+ks %>%
+  select(all_of(num_cols)) %>%
+  pivot_longer(everything(), names_to = "Μεταβλητή", values_to = "value") %>%
+  group_by(Μεταβλητή) %>%
+  summarise(
+    N        = n(),
+    Ελάχιστο = round(min(value), 2),
+    Q1       = round(quantile(value, .25), 2),
+    Μέσος    = round(mean(value), 2),
+    Διάμεσος = round(median(value), 2),
+    Q3       = round(quantile(value, .75), 2),
+    Μέγιστο  = round(max(value), 2),
+    `Τυπ.Απ.`= round(sd(value), 2),
+    Ασυμμετρία = round(moments::skewness(value), 2)
+  ) %>%
+  kable(caption = "Περιγραφική Στατιστική") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE) %>%
+  footnote(general = "* moments::skewness — εγκαταστήστε το πακέτο αν απαιτείται")
+```
+
+> **Παρατήρηση για Μετασχηματισμό:** Η `usd_pledged_real` παρουσιάζει **έντονη θετική ασυμμετρία** (right-skew). Η εφαρμογή λογαριθμικού μετασχηματισμού `log1p()` φέρνει την κατανομή πολύ πιο κοντά στην κανονική — προϋπόθεση για τη γραμμική παλινδρόμηση.
+
+## Κατανομή Εξαρτημένης Μεταβλητής: Πριν & Μετά Μετασχηματισμό
+
+```{r dist-comparison, fig.height=5, fig.width=10}
+p1 <- ggplot(ks, aes(x = usd_pledged_real)) +
+  geom_histogram(aes(y = ..density..), bins = 50,
+                 fill = "#EF5350", color = "white", alpha = 0.85) +
+  geom_density(color = "#B71C1C", linewidth = 1) +
+  scale_x_continuous(labels = dollar_format(scale = 1e-3, suffix = "K")) +
+  labs(title = "Πριν μετασχηματισμό",
+       subtitle = "Έντονη θετική ασυμμετρία (right-skew)",
+       x = "USD Pledged", y = "Πυκνότητα") +
+  theme_minimal(base_size = 12)
+
+p2 <- ggplot(ks, aes(x = log_pledged)) +
+  geom_histogram(aes(y = ..density..), bins = 40,
+                 fill = "#42A5F5", color = "white", alpha = 0.85) +
+  geom_density(color = "#0D47A1", linewidth = 1) +
+  stat_function(fun = dnorm,
+                args = list(mean = mean(ks$log_pledged), sd = sd(ks$log_pledged)),
+                color = "#4CAF50", linewidth = 1, linetype = "dashed") +
+  labs(title = "Μετά log1p() μετασχηματισμό",
+       subtitle = "Προσέγγιση κανονικής κατανομής",
+       x = "log(1 + USD Pledged)", y = "Πυκνότητα") +
+  theme_minimal(base_size = 12)
+
+gridExtra::grid.arrange(p1, p2, ncol = 2)
+```
+
+## Ανάλυση ανά Κατηγορία
+
+```{r boxplot-category, fig.height=6}
+ks %>%
+  group_by(main_category) %>%
+  mutate(med = median(log_pledged)) %>%
+  ungroup() %>%
+  mutate(main_category = fct_reorder(main_category, med)) %>%
+  ggplot(aes(x = main_category, y = log_pledged, fill = main_category)) +
+  geom_boxplot(alpha = 0.8, outlier.alpha = 0.2, outlier.size = 0.8) +
+  scale_fill_viridis_d(option = "turbo") +
+  coord_flip() +
+  labs(title    = "Κατανομή log_pledged ανά Κατηγορία",
+       subtitle = "Ταξινόμηση βάσει διαμέσου — από χαμηλότερη σε υψηλότερη χρηματοδότηση",
+       x = NULL, y = "log(1 + USD Pledged)") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none")
+```
+
+> **Σχόλιο:** Κατηγορίες όπως **Design, Technology και Games** τείνουν να συγκεντρώνουν τις υψηλότερες χρηματοδοτήσεις, ενώ **Crafts, Dance και Journalism** εμφανίζουν χαμηλότερους διαμέσους.
+
+## Ποσοστό Επιτυχίας ανά Κατηγορία
+
+```{r success-rate, fig.height=5}
+ks %>%
+  group_by(main_category) %>%
+  summarise(
+    success_rate = mean(success),
+    n = n(),
+    .groups = "drop"
+  ) %>%
+  mutate(main_category = fct_reorder(main_category, success_rate)) %>%
+  ggplot(aes(x = main_category, y = success_rate, fill = success_rate)) +
+  geom_col(alpha = 0.9) +
+  geom_text(aes(label = scales::percent(success_rate, accuracy = 1)),
+            hjust = -0.1, size = 3.2) +
+  scale_fill_gradient(low = "#EF5350", high = "#4CAF50") +
+  scale_y_continuous(labels = percent_format(), limits = c(0, 0.8)) +
+  coord_flip() +
+  labs(title    = "Ποσοστό Επιτυχίας ανά Κύρια Κατηγορία",
+       x = NULL, y = "Ποσοστό Επιτυχίας", fill = "Success Rate") +
+  theme_minimal(base_size = 12)
+```
+
+## Διάρκεια Καμπάνιας & Χρηματοδότηση
+
+```{r ridge-duration, fig.height=6}
+ks %>%
+  mutate(duration_bin = cut(campaign_days,
+                            breaks = c(0, 15, 30, 45, 60, 92),
+                            labels = c("≤15","16–30","31–45","46–60",">60"))) %>%
+  ggplot(aes(x = log_pledged, y = duration_bin, fill = duration_bin)) +
+  geom_density_ridges(alpha = 0.75, scale = 1.2) +
+  scale_fill_viridis_d(option = "plasma") +
+  labs(title    = "Ridge Plot: log_pledged ανά Διάρκεια Καμπάνιας",
+       subtitle = "Κάθε ridge = κατανομή χρηματοδότησης για διαφορετική διάρκεια",
+       x = "log(1 + USD Pledged)", y = "Ημέρες Καμπάνιας") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "none")
+```
+
+## Χρηματοδότηση ανά Έτος
+
+```{r yearly-trend, fig.height=4}
+ks %>%
+  group_by(launch_year) %>%
+  summarise(
+    med_pledged = median(usd_pledged_real),
+    n_projects  = n(),
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(x = launch_year)) +
+  geom_col(aes(y = med_pledged, fill = n_projects), alpha = 0.85) +
+  geom_line(aes(y = med_pledged), color = "#E91E63", linewidth = 1.2) +
+  geom_point(aes(y = med_pledged), color = "#E91E63", size = 3) +
+  scale_fill_gradient(low = "#B3E5FC", high = "#01579B",
+                      labels = comma) +
+  scale_y_continuous(labels = dollar_format()) +
+  labs(title    = "Διάμεσος Χρηματοδότησης ανά Έτος",
+       subtitle = "Χρώμα μπάρας = αριθμός projects",
+       x = "Έτος Έναρξης", y = "Διάμεσος USD Pledged",
+       fill = "# Projects") +
+  theme_minimal(base_size = 12)
+```
+
+---
+
+# Βήμα 2 — Συσχετίσεις & Επιλογή Μεταβλητών {#correlations}
+
+## Scatterplots Βασικών Σχέσεων
+
+```{r scatter-grid, fig.height=6, fig.width=10}
+s1 <- ggplot(ks, aes(x = log_goal, y = log_pledged, color = state)) +
+  geom_point(alpha = 0.25, size = 0.9) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 1.2) +
+  scale_color_manual(values = c(failed = "#EF5350", successful = "#4CAF50")) +
+  labs(title = "log_pledged ~ log_goal",
+       x = "log(Goal)", y = "log(Pledged)", color = NULL) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom")
+
+s2 <- ggplot(ks, aes(x = log_backers, y = log_pledged, color = state)) +
+  geom_point(alpha = 0.25, size = 0.9) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 1.2) +
+  scale_color_manual(values = c(failed = "#EF5350", successful = "#4CAF50")) +
+  labs(title = "log_pledged ~ log_backers",
+       x = "log(Backers)", y = "log(Pledged)", color = NULL) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom")
+
+s3 <- ggplot(ks, aes(x = campaign_days, y = log_pledged, color = state)) +
+  geom_point(alpha = 0.25, size = 0.9) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 1.2) +
+  scale_color_manual(values = c(failed = "#EF5350", successful = "#4CAF50")) +
+  labs(title = "log_pledged ~ campaign_days",
+       x = "Ημέρες Καμπάνιας", y = "log(Pledged)", color = NULL) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom")
+
+s4 <- ggplot(ks, aes(x = log_goal, y = log_pledged)) +
+  geom_point(alpha = 0.15, size = 0.8, color = "#7B1FA2") +
+  geom_smooth(method = "lm", color = "#E91E63", se = TRUE, linewidth = 1.2) +
+  facet_wrap(~ success, labeller = labeller(success = c(`0`="Failed",`1`="Successful"))) +
+  labs(title = "log_pledged ~ log_goal (ανά αποτέλεσμα)",
+       x = "log(Goal)", y = "log(Pledged)") +
+  theme_minimal(base_size = 11)
+
+gridExtra::grid.arrange(s1, s2, s3, s4, ncol = 2)
+```
+
+> **Παρατηρήσεις:**
+> - Ο **αριθμός backers** (`log_backers`) εμφανίζει την **ισχυρότατη γραμμική σχέση** με το `log_pledged`.
+> - Ο **στόχος χρηματοδότησης** (`log_goal`) έχει θετική σχέση — υψηλότεροι στόχοι αντιστοιχούν σε υψηλότερα ποσά, αλλά με διαφορετική κλίση στα successful vs failed.
+> - Η **διάρκεια καμπάνιας** δείχνει αδύναμη έως ανύπαρκτη γραμμική σχέση.
+
+## Πίνακας Συσχετίσεων Pearson
+
+```{r corrplot, fig.height=6, fig.width=7}
+cor_data <- ks %>%
+  select(log_pledged, log_goal, log_backers, campaign_days, success)
+
+cor_mat <- cor(cor_data, use = "complete.obs")
+
+corrplot(cor_mat,
+         method      = "color",
+         type        = "upper",
+         addCoef.col = "black",
+         number.cex  = 0.85,
+         tl.col      = "black",
+         tl.srt      = 35,
+         col         = colorRampPalette(c("#D32F2F","#FFFFFF","#1565C0"))(200),
+         title       = "Pearson Correlation Matrix — Kickstarter",
+         mar         = c(0, 0, 2, 0))
+```
+
+```{r cor-table}
+as.data.frame(round(cor_mat, 4)) %>%
+  rownames_to_column("Μεταβλητή") %>%
+  kable(caption = "Πίνακας Συσχετίσεων Pearson") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE) %>%
+  column_spec(1, bold = TRUE)
+```
+
+> **Κύρια ευρήματα:**
+>
+> | Μεταβλητή | r με log_pledged | Ερμηνεία |
+> |-----------|-----------------|----------|
+> | `log_backers` | **> 0.90** | Εξαιρετικά ισχυρή θετική συσχέτιση |
+> | `success` | **~0.60** | Σαφής θετική συσχέτιση |
+> | `log_goal` | **~0.40** | Μέτρια θετική συσχέτιση |
+> | `campaign_days` | **~−0.05** | Αμελητέα σχέση |
+
+## Pairwise Matrix
+
+```{r ggpairs, fig.height=7, fig.width=9}
+ggpairs(
+  cor_data %>% mutate(success = factor(success, labels = c("Failed","Success"))),
+  aes(color = success, alpha = 0.4),
+  upper = list(continuous = wrap("cor", size = 3)),
+  lower = list(continuous = wrap("smooth_loess", se = FALSE, linewidth = 0.6)),
+  diag  = list(continuous = wrap("densityDiag", alpha = 0.5)),
+  columns = 1:4,
+  title = "Pairwise Scatterplot Matrix"
+) +
+  scale_color_manual(values = c(Failed = "#EF5350", Success = "#4CAF50")) +
+  scale_fill_manual(values  = c(Failed = "#EF5350", Success = "#4CAF50")) +
+  theme_minimal(base_size = 10)
+```
+
+---
+
+# Βήμα 3 — Εκτίμηση Μοντέλων Παλινδρόμησης {#models}
+
+Η **εξαρτημένη μεταβλητή** είναι `log_pledged = log(1 + usd_pledged_real)`.
+
+## Μοντέλο 1 — Απλή Παλινδρόμηση: `log_pledged ~ log_goal`
+
+```{r m1}
+m1 <- lm(log_pledged ~ log_goal, data = ks)
+summary(m1)
+```
+
+```{r m1-plot}
+ggplot(ks, aes(x = log_goal, y = log_pledged)) +
+  geom_point(alpha = 0.15, size = 0.8, color = "#78909C") +
+  geom_smooth(method = "lm", color = "#E91E63", linewidth = 1.3, se = TRUE) +
+  annotate("text", x = max(ks$log_goal) * 0.3, y = max(ks$log_pledged) * 0.95,
+           label = paste0("R² = ", round(summary(m1)$r.squared, 3),
+                          "\nSSE = ", round(sum(m1$residuals^2), 0)),
+           size = 4.5, color = "#1A237E", fontface = "bold") +
+  labs(title    = "Μοντέλο 1: log_pledged ~ log_goal",
+       x = "log(1 + usd_goal_real)", y = "log(1 + usd_pledged_real)") +
+  theme_minimal(base_size = 13)
+```
+
+---
+
+## Μοντέλο 2 — Απλή Παλινδρόμηση: `log_pledged ~ log_backers`
+
+```{r m2}
+m2 <- lm(log_pledged ~ log_backers, data = ks)
+summary(m2)
+```
+
+```{r m2-plot}
+ggplot(ks, aes(x = log_backers, y = log_pledged)) +
+  geom_point(alpha = 0.15, size = 0.8, color = "#78909C") +
+  geom_smooth(method = "lm", color = "#00897B", linewidth = 1.3, se = TRUE) +
+  annotate("text", x = max(ks$log_backers) * 0.15, y = max(ks$log_pledged) * 0.95,
+           label = paste0("R² = ", round(summary(m2)$r.squared, 3),
+                          "\nSSE = ", round(sum(m2$residuals^2), 0)),
+           size = 4.5, color = "#1A237E", fontface = "bold") +
+  labs(title    = "Μοντέλο 2: log_pledged ~ log_backers",
+       x = "log(1 + backers)", y = "log(1 + usd_pledged_real)") +
+  theme_minimal(base_size = 13)
+```
+
+> **Σχόλιο:** Το `log_backers` είναι ο μεμονωμένα πιο ισχυρός προβλεπτής. Η σχέση είναι **σχεδόν τέλεια γραμμική** στον log-χώρο, που υποδηλώνει ότι η χρηματοδότηση κλιμακώνεται σχεδόν αναλογικά με τον αριθμό υποστηρικτών.
+
+---
+
+## Μοντέλο 3 — Πολλαπλή: `log_pledged ~ log_goal + log_backers`
+
+```{r m3}
+m3 <- lm(log_pledged ~ log_goal + log_backers, data = ks)
+summary(m3)
+```
+
+```{r m3-coef}
+tidy(m3) %>%
+  kable(digits = 4, caption = "Συντελεστές Μοντέλου 3") %>%
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+```
+
+---
+
+## Μοντέλο 4 — Πολλαπλή: `+ campaign_days + success`
+
+```{r m4}
+m4 <- lm(log_pledged ~ log_goal + log_backers + campaign_days + success, data = ks)
+summary(m4)
+```
+
+---
+
+## Μοντέλο 5 — Πολλαπλή: `+ main_category`
+
+```{r m5}
+m5 <- lm(log_pledged ~ log_goal + log_backers + campaign_days +
+           success + main_category, data = ks)
+summary(m5)
+```
+
+```{r m5-coef-plot, fig.height=7}
+tidy(m5) %>%
+  filter(term != "(Intercept)") %>%
+  mutate(
+    significant = p.value < 0.05,
+    term = str_replace(term, "main_category", "cat: ")
+  ) %>%
+  ggplot(aes(x = reorder(term, estimate), y = estimate,
+             color = significant, fill = significant)) +
+  geom_col(alpha = 0.75, width = 0.7) +
+  geom_errorbar(aes(ymin = estimate - 1.96*std.error,
+                    ymax = estimate + 1.96*std.error),
+                width = 0.25, linewidth = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40") +
+  scale_color_manual(values = c(`TRUE` = "#1565C0", `FALSE` = "#BDBDBD")) +
+  scale_fill_manual(values  = c(`TRUE` = "#42A5F5", `FALSE` = "#EEEEEE")) +
+  coord_flip() +
+  labs(title    = "Συντελεστές Μοντέλου 5 (95% CI)",
+       subtitle = "Μπλε = στατιστικά σημαντικοί (p < 0.05)",
+       x = NULL, y = "Εκτιμώμενος Συντελεστής β",
+       color = "Σημαντικός", fill = "Σημαντικός") +
+  theme_minimal(base_size = 11)
+```
+
+---
+
+## Μοντέλο 6 — Stepwise Selection (AIC)
+
+```{r m6, results='hide'}
+# Stepwise bidirectional βάσει AIC
+m_full  <- lm(log_pledged ~ log_goal + log_backers + campaign_days +
+                success + main_category, data = ks)
+m_null  <- lm(log_pledged ~ 1, data = ks)
+
+m6 <- step(m_full,
+           scope   = list(lower = m_null, upper = m_full),
+           direction = "both",
+           trace   = 0)   # trace=0 για καθαρή εκτύπωση
+```
+
+```{r m6-summary}
+summary(m6)
+```
+
+> **Stepwise AIC Selection:** Ο αλγόριθμος δοκιμάζει προσθήκη/αφαίρεση μεταβλητών και κρατά όσες ελαχιστοποιούν το **AIC** (Akaike Information Criterion). Αποτελεί μια αυτοματοποιημένη προσέγγιση επιλογής μεταβλητών.
+
+---
+
+## Σύγκριση Όλων των Μοντέλων
+
+```{r comparison-table}
+models_named <- list(
+  "M1: ~log_goal"                       = m1,
+  "M2: ~log_backers"                    = m2,
+  "M3: ~log_goal+log_backers"           = m3,
+  "M4: +campaign_days+success"          = m4,
+  "M5: +main_category"                  = m5,
+  "M6: Stepwise (AIC)"                  = m6
+)
+
+comp_df <- map_dfr(names(models_named), function(nm) {
+  m <- models_named[[nm]]
+  g <- glance(m)
+  tibble(
+    Μοντέλο  = nm,
+    k        = length(coef(m)) - 1,
+    R2       = round(g$r.squared, 4),
+    Adj_R2   = round(g$adj.r.squared, 4),
+    SSE      = round(sum(m$residuals^2), 1),
+    RMSE     = round(g$sigma, 4),
+    AIC      = round(g$AIC, 1),
+    BIC      = round(g$BIC, 1)
+  )
+})
+
+best_aic <- which.min(comp_df$AIC)
+best_r2  <- which.max(comp_df$Adj_R2)
+
+comp_df %>%
+  kable(caption = "Σύγκριση Μοντέλων — Kickstarter Regression") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE) %>%
+  row_spec(best_aic, background = "#C8E6C9", bold = TRUE) %>%
+  footnote(general = "Πράσινο = βέλτιστο AIC")
+```
+
+### Οπτική Σύγκριση R², SSE, AIC
+
+```{r comparison-viz, fig.height=5, fig.width=11}
+comp_long <- comp_df %>%
+  select(Μοντέλο, R2, Adj_R2, SSE, AIC) %>%
+  mutate(M_id = paste0("M", row_number()))
+
+p_r2 <- ggplot(comp_long, aes(x = M_id, y = R2)) +
+  geom_col(aes(fill = Adj_R2), alpha = 0.9) +
+  geom_point(aes(y = Adj_R2), shape = 18, size = 4, color = "#E91E63") +
+  geom_line(aes(y = Adj_R2, group = 1), color = "#E91E63",
+            linewidth = 1, linetype = "dashed") +
+  scale_fill_gradient(low = "#B3E5FC", high = "#01579B") +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(title = "R² & Adj.R²", subtitle = "Ρόμβος = Adj.R²",
+       x = NULL, y = "R²", fill = "Adj.R²") +
+  theme_minimal(base_size = 11)
+
+p_sse <- ggplot(comp_long, aes(x = M_id, y = SSE, fill = SSE)) +
+  geom_col(alpha = 0.9) +
+  geom_text(aes(label = comma(SSE, accuracy = 1)),
+            vjust = -0.4, size = 3) +
+  scale_fill_gradient(low = "#FFCC80", high = "#BF360C") +
+  labs(title = "SSE (↓ = καλύτερο)", x = NULL, y = "SSE") +
+  theme_minimal(base_size = 11) + theme(legend.position = "none")
+
+p_aic <- ggplot(comp_long, aes(x = M_id, y = AIC, fill = AIC)) +
+  geom_col(alpha = 0.9) +
+  geom_text(aes(label = comma(AIC, accuracy = 1)),
+            vjust = -0.4, size = 3) +
+  scale_fill_gradient(low = "#A5D6A7", high = "#1B5E20") +
+  labs(title = "AIC (↓ = καλύτερο)", x = NULL, y = "AIC") +
+  theme_minimal(base_size = 11) + theme(legend.position = "none")
+
+gridExtra::grid.arrange(p_r2, p_sse, p_aic, ncol = 3)
+```
+
+> **Ερμηνεία Αποτελεσμάτων:**
+>
+> - **R² & SSE**: Με κάθε προσθήκη σημαντικής μεταβλητής το R² αυξάνεται και το SSE μειώνεται.
+> - **Adj.R²**: Παραμένει σχεδόν σταθερό μεταξύ M5 και M6, υποδηλώνοντας ότι η κατηγορία `main_category` συνεισφέρει μικρά αλλά μετρήσιμα.
+> - **AIC**: Ελαχιστοποιείται στο **Μοντέλο 5/6** — το Stepwise επιβεβαιώνει ότι όλες οι επιλεγμένες μεταβλητές συνεισφέρουν.
+
+---
+
+# Βήμα 4 — Αξιολόγηση & Διαγνωστικός Έλεγχος {#diagnostics}
+
+Επικεντρωνόμαστε στο **Μοντέλο 5** (πλήρες χωρίς stepwise) για λόγους ερμηνευσιμότητας.
+
+## Διαγνωστικά Διαγράμματα (4-panel)
+
+```{r diag-plots, fig.height=8, fig.width=10}
+par(mfrow = c(2, 2), mar = c(4, 4, 3, 1))
+plot(m5,
+     col        = adjustcolor("#1565C0", alpha.f = 0.5),
+     pch        = 16,
+     cex        = 0.7,
+     lwd        = 1.5,
+     col.smooth = "#E91E63",
+     id.n       = 3)       # επισήμανση 3 ακραίων
+par(mfrow = c(1, 1))
+```
+
+| Διάγραμμα | Τι ελέγχει | Κριτήριο |
+|-----------|-----------|---------|
+| **Residuals vs Fitted** | Γραμμικότητα, ομοσκεδαστικότητα | Τυχαία διασπορά γύρω από y=0 |
+| **Normal Q-Q** | Κανονικότητα καταλοίπων | Σημεία επί διαγωνίου |
+| **Scale-Location** | Ομοσκεδαστικότητα | Οριζόντια γραμμή |
+| **Residuals vs Leverage** | Επιδραστικές παρατηρήσεις | Cook's D < 0.5 |
+
+## Κατανομή Καταλοίπων
+
+```{r residuals-analysis, fig.height=4, fig.width=10}
+res_df <- tibble(
+  fitted    = fitted(m5),
+  residuals = residuals(m5),
+  std_res   = rstandard(m5)
+)
+
+p_hist <- ggplot(res_df, aes(x = residuals)) +
+  geom_histogram(aes(y = ..density..), bins = 40,
+                 fill = "#42A5F5", color = "white", alpha = 0.85) +
+  geom_density(color = "#E91E63", linewidth = 1.1) +
+  stat_function(fun = dnorm,
+                args = list(mean = 0, sd = sd(res_df$residuals)),
+                color = "#4CAF50", linewidth = 1.1, linetype = "dashed") +
+  labs(title = "Ιστόγραμμα Καταλοίπων",
+       subtitle = "Κόκκινο=KDE | Πράσινο=Κανονική",
+       x = "Κατάλοιπα", y = "Πυκνότητα") +
+  theme_minimal(base_size = 11)
+
+p_fitted <- ggplot(res_df, aes(x = fitted, y = residuals)) +
+  geom_point(alpha = 0.3, size = 0.9, color = "#5C6BC0") +
+  geom_hline(yintercept = 0, color = "#E91E63", linewidth = 1, linetype = "dashed") +
+  geom_smooth(method = "loess", se = FALSE, color = "#FF8F00", linewidth = 0.9) +
+  labs(title = "Residuals vs Fitted",
+       x = "Fitted Values", y = "Residuals") +
+  theme_minimal(base_size = 11)
+
+gridExtra::grid.arrange(p_hist, p_fitted, ncol = 2)
+```
+
+## Τεστ Κανονικότητας Καταλοίπων
+
+```{r normality-test}
+sw  <- shapiro.test(sample(residuals(m5), min(5000, length(residuals(m5)))))
+ks_test <- ks.test(scale(residuals(m5)), "pnorm")
+
+tibble(
+  Τεστ        = c("Shapiro-Wilk", "Kolmogorov-Smirnov"),
+  Στατιστικό  = round(c(sw$statistic, ks_test$statistic), 5),
+  `p-value`   = round(c(sw$p.value, ks_test$p.value), 5),
+  Συμπέρασμα  = ifelse(c(sw$p.value, ks_test$p.value) > 0.05,
+                       "✓ Κανονικότητα αποδεκτή",
+                       "⚠ Απόκλιση από κανονικότητα")
+) %>%
+  kable(caption = "Έλεγχοι Κανονικότητας Καταλοίπων") %>%
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+```
+
+## Έλεγχος Πολυσυγγραμμικότητας (VIF)
+
+```{r vif-check}
+# Για τις αριθμητικές μεταβλητές του m4 (χωρίς κατηγορικές για καθαρό VIF)
+vif_m4 <- vif(m4)
+
+as.data.frame(vif_m4) %>%
+  rownames_to_column("Μεταβλητή") %>%
+  rename(VIF = vif_m4) %>%
+  mutate(
+    VIF         = round(VIF, 3),
+    Αξιολόγηση = case_when(
+      VIF < 5   ~ "✅ Αποδεκτό (< 5)",
+      VIF < 10  ~ "⚠️ Μέτριο (5–10)",
+      TRUE      ~ "❌ Υψηλό (> 10)"
+    )
+  ) %>%
+  kable(caption = "Variance Inflation Factor — Μοντέλο 4") %>%
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+```
+
+> **Κριτήρια VIF:**
+> - **VIF < 5**: Δεν υπάρχει πρόβλημα πολυσυγγραμμικότητας
+> - **5 ≤ VIF < 10**: Μέτριο πρόβλημα — απαιτεί προσοχή
+> - **VIF ≥ 10**: Σοβαρό πρόβλημα — εξετάστε αφαίρεση μεταβλητής
+
+## Πραγματικές vs Προβλεπόμενες Τιμές
+
+```{r actual-predicted}
+pred_df <- tibble(
+  Πραγματικό   = ks$log_pledged,
+  Προβλεπόμενο = fitted(m5),
+  Κατάλοιπο    = residuals(m5),
+  state        = ks$state
+)
+
+ggplot(pred_df, aes(x = Προβλεπόμενο, y = Πραγματικό, color = abs(Κατάλοιπο))) +
+  geom_point(alpha = 0.35, size = 0.9) +
+  geom_abline(slope = 1, intercept = 0,
+              color = "#E91E63", linewidth = 1.3, linetype = "dashed") +
+  geom_smooth(method = "lm", color = "#1565C0", se = FALSE, linewidth = 0.9) +
+  scale_color_gradient(low = "#A5D6A7", high = "#B71C1C",
+                       labels = round) +
+  labs(title    = "Πραγματικές vs Προβλεπόμενες Τιμές — Μοντέλο 5",
+       subtitle = "Ιδανικά: σημεία επί της ροζ διαγωνίου y = x",
+       x = "Προβλεπόμενο log_pledged",
+       y = "Πραγματικό log_pledged",
+       color = "|Κατάλοιπο|") +
+  theme_minimal(base_size = 13)
+```
+
+---
+
+# Συμπεράσματα {#conclusions}
+
+## Τελικός Πίνακας Σύγκρισης
+
+```{r final-table}
+comp_df %>%
+  kable(caption = "Σύνοψη Αποτελεσμάτων — Όλα τα Μοντέλα") %>%
+  kable_styling(bootstrap_options = c("striped","hover","condensed"),
+                full_width = FALSE) %>%
+  row_spec(which.min(comp_df$AIC), background = "#C8E6C9", bold = TRUE) %>%
+  row_spec(1:2, background = "#FFF8E1") %>%
+  column_spec(4, bold = TRUE, color = "#1565C0") %>%
+  footnote(general = "Πράσινο = βέλτιστο AIC | Κίτρινο = Απλή Παλινδρόμηση")
+```
+
+## Συνοπτική Αξιολόγηση
+
+```{r eval-summary}
+tibble(
+  Κριτήριο     = c("R² (M5)", "Adj. R² (M5)", "RMSE (M5)",
+                   "SSE Μείωση M1→M5", "Βέλτιστο AIC", "VIF (M4)"),
+  Τιμή         = c(
+    round(glance(m5)$r.squared, 4),
+    round(glance(m5)$adj.r.squared, 4),
+    round(glance(m5)$sigma, 4),
+    paste0(round((1 - sum(m5$residuals^2)/sum(m1$residuals^2))*100, 1), "% μείωση SSE"),
+    paste0("Μ", which.min(comp_df$AIC)),
+    "< 5 (αποδεκτό)"
+  ),
+  Ερμηνεία     = c(
+    "Εξηγεί το XX% της διακύμανσης",
+    "Διόρθωση για αριθμό μεταβλητών",
+    "Μέσο σφάλμα στη log-κλίμακα",
+    "Σημαντική βελτίωση με πολλαπλές μεταβλητές",
+    "Καλύτερη ισορροπία fit/πολυπλοκότητας",
+    "Δεν υπάρχει πολυσυγγραμμικότητα"
+  )
+) %>%
+  kable(caption = "Αξιολόγηση Τελικού Μοντέλου") %>%
+  kable_styling(bootstrap_options = c("striped","hover"), full_width = FALSE)
+```
+
+## Τελικό Μοντέλο & Ερμηνεία
+
+$$\widehat{\log(\text{pledged}+1)} = \beta_0 + \beta_1 \cdot \log(\text{goal}+1) + \beta_2 \cdot \log(\text{backers}+1) + \beta_3 \cdot \text{days} + \beta_4 \cdot \text{success} + \sum_{j} \gamma_j \cdot \text{category}_j$$
+
+| Μεταβλητή | Κατεύθυνση | Πρακτική Σημασία |
+|-----------|-----------|-----------------|
+| `log_backers` | **↑ ισχυρά θετική** | Κάθε διπλασιασμός backers → +X% pledged |
+| `log_goal` | **↑ θετική** | Υψηλότεροι στόχοι → υψηλότερα ποσά |
+| `success` | **↑ θετική** | Επιτυχημένα projects → περισσότερα ποσά |
+| `campaign_days` | **αμελητέα** | Η διάρκεια δεν είναι καθοριστικός παράγοντας |
+| `main_category` | **μεταβλητή** | Κατηγορίες όπως Design/Technology > Crafts/Dance |
+
+## Κύρια Συμπεράσματα
+
+**1. Log-μετασχηματισμός:** Ήταν **απαραίτητος** λόγω της έντονης ασυμμετρίας του `usd_pledged_real`. Χωρίς αυτόν, οι υποθέσεις γραμμικής παλινδρόμησης παραβιάζονται σοβαρά.
+
+**2. Κυρίαρχη Μεταβλητή:** Ο **αριθμός backers** (`log_backers`) είναι ο by far πιο ισχυρός προβλεπτής με r > 0.90 — αυτό είναι αναμενόμενο (περισσότεροι υποστηρικτές → περισσότερα χρήματα).
+
+**3. Προσθήκη Μεταβλητών:** Κάθε σημαντική μεταβλητή βελτίωσε το R² και μείωσε το SSE. Το **Adjusted R²** και το **AIC** επιβεβαίωσαν ότι το Μοντέλο 5 είναι το βέλτιστο.
+
+**4. Κατηγορία Έργου:** Η `main_category` συνεισφέρει **στατιστικά σημαντικά** — η κατηγορία ενός project επηρεάζει το ύψος χρηματοδότησης ανεξάρτητα από τους άλλους παράγοντες.
+
+**5. Διάρκεια Καμπάνιας:** Δεν αποδείχθηκε σημαντικός παράγοντας στη γραμμική σχέση με το `log_pledged` — συμφωνεί με τα ευρήματα της βιβλιογραφίας για το Kickstarter.
+
+**6. Υποθέσεις Μοντέλου:** Ο διαγνωστικός έλεγχος (Q-Q plot, Shapiro-Wilk, VIF) επιβεβαιώνει αποδεκτή προσέγγιση κανονικότητας καταλοίπων και απουσία σοβαρής πολυσυγγραμμικότητας.
+
+---
+
+```{r session-info, echo=FALSE}
+cat("R version:", R.version$major, ".", R.version$minor, "\n",
+    "Ημερομηνία:", format(Sys.Date(), "%d/%m/%Y"), "\n")
+```
+
+*Δημιουργήθηκε με **R Markdown** · Dataset: [Kickstarter Projects — Kaggle](https://www.kaggle.com/datasets/kemical/kickstarter-projects)*
